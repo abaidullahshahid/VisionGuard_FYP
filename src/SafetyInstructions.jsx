@@ -25,6 +25,11 @@ export default function SafetyInstructions() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [expandedIndex, setExpandedIndex] = useState(null);
+  const [acknowledged, setAcknowledged] = useState([]);
+
+  const handleAcknowledge = (id) => {
+    if (!acknowledged.includes(id)) setAcknowledged([...acknowledged, id]);
+  };
 
   useEffect(() => {
     if (!token) navigate("/");
@@ -63,7 +68,9 @@ export default function SafetyInstructions() {
 
             {/* Instructions accordion */}
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              {filtered.map((instruction, idx) => (
+              {filtered.map((instruction, idx) => {
+                const isAck = acknowledged.includes(instruction.id);
+                return (
                 <div key={idx} className="content-section" style={{padding:0,overflow:"hidden"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 24px",cursor:"pointer",transition:"background 0.2s"}}
                     onClick={() => setExpandedIndex(expandedIndex===idx?null:idx)}>
@@ -72,7 +79,10 @@ export default function SafetyInstructions() {
                         {categoryMeta[instruction.category]?.icon || "📖"}
                       </span>
                       <div>
-                        <h3 style={{margin:0,fontSize:15,fontWeight:700,color:"var(--text)"}}>{instruction.title}</h3>
+                        <h3 style={{margin:0,fontSize:15,fontWeight:700,color:"var(--text)",display:"flex",alignItems:"center",gap:8}}>
+                          {instruction.title}
+                          {isAck && <span style={{color:"var(--success)",fontSize:16}}>✓</span>}
+                        </h3>
                         <p style={{margin:"4px 0 0",fontSize:12,color:"var(--text3)"}}>{categoryMeta[instruction.category]?.name}</p>
                       </div>
                     </div>
@@ -113,10 +123,18 @@ export default function SafetyInstructions() {
                           )}
                         </div>
                       )}
+                      
+                      <div style={{marginTop:20,textAlign:"right"}}>
+                        <button className={`btn ${isAck ? "btn-ghost" : "btn-primary"}`} 
+                          onClick={(e) => { e.stopPropagation(); handleAcknowledge(instruction.id); }}
+                          disabled={isAck}>
+                          {isAck ? "✓ Acknowledged" : "Acknowledge"}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
 
             {/* Reference sidebar */}
