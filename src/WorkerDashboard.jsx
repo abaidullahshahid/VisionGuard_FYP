@@ -2,27 +2,23 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import Sidebar from "./Sidebar";
-
-const menuItems = [
-  { label:"Dashboard",           icon:"🏠", path:"/worker"              },
-  { label:"Locations",           icon:"📍", path:"/worker/locations"    },
-  { label:"Safety Instructions", icon:"📖", path:"/worker/instructions" },
-];
+import { Icon } from "./Icons";
+import { workerMenuItems as menuItems } from "./roleMenuItems";
 
 export default function WorkerDashboard() {
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
-  const [stats, setStats] = useState({ assignedLocations:0, safetyScore:0, tasksCompleted:0, activeAlerts:0 });
+  const token = sessionStorage.getItem("token");
+  const [stats, setStats] = useState({ availableLocations:0, assignedActions:0, completedActions:0, openIncidents:0 });
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!token) navigate("/");
+    if (!token) navigate("/login");
     const fetchData = async () => {
       try {
         const [statsRes, assignmentsRes] = await Promise.all([
-          axios.get("http://localhost:8000/worker/stats",       { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get("http://localhost:8000/worker/assignments", { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get("http://127.0.0.1:8001/worker/stats",       { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get("http://127.0.0.1:8001/worker/assignments", { headers: { Authorization: `Bearer ${token}` } }),
         ]);
         setStats(statsRes.data || {});
         setAssignments(assignmentsRes.data || []);
@@ -33,57 +29,103 @@ export default function WorkerDashboard() {
   }, [navigate]);
 
   const cards = [
-    { label:"Assigned Locations", value:stats.assignedLocations,      icon:"📍", accentColor:"var(--accent)"  },
-    { label:"Safety Score",       value:`${stats.safetyScore || 0}%`, icon:"⭐", accentColor:"var(--success)" },
-    { label:"Tasks Completed",    value:stats.tasksCompleted,          icon:"✓",  accentColor:"var(--success)" },
-    { label:"Active Alerts",      value:stats.activeAlerts,            icon:"🔔", accentColor:"var(--danger)"  },
+    { label:"Assigned Locations", value:stats.assignedLocations ?? 0, icon:"location",  tone:"blue"  },
+    { label:"Assigned Actions",    value:stats.assignedActions ?? 0,                           icon:"clipboard", tone:"amber" },
+    { label:"Completed Actions",   value:stats.completedActions ?? 0,                          icon:"check",     tone:"green" },
+    { label:"Open Incidents",      value:stats.openIncidents ?? 0,                             icon:"alert",     tone:"red"   },
   ];
-
-  const tips = [
-    { icon:"👷", text:"Always wear your safety gear at all times"          },
-    { icon:"👁️", text:"Report any hazards immediately to your supervisor"  },
-    { icon:"📋", text:"Follow all workplace safety rules and procedures"   },
-    { icon:"🤝", text:"Help your colleagues stay safe and aware"           },
-  ];
+  const maxMetric = Math.max(...cards.map(c => Number(c.value) || 0), 1);
+  const totalRecords = cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0);
+  const availablePct = totalRecords ? ((Number(cards[0].value) || 0) / totalRecords) * 100 : 0;
+  const assignedPct = totalRecords ? ((Number(cards[1].value) || 0) / totalRecords) * 100 : 0;
+  const completedPct = totalRecords ? ((Number(cards[2].value) || 0) / totalRecords) * 100 : 0;
+  const ringStyle = {
+    background: totalRecords
+      ? `conic-gradient(var(--tone-blue) 0 ${availablePct}%, var(--tone-amber) ${availablePct}% ${availablePct + assignedPct}%, var(--tone-green) ${availablePct + assignedPct}% ${availablePct + assignedPct + completedPct}%, var(--tone-red) ${availablePct + assignedPct + completedPct}% 100%)`
+      : "conic-gradient(var(--chart-muted) 0 100%)",
+  };
 
   return (
-    <div className="page-layout">
+    <div className="page-layout admin-shell">
       <Sidebar menuItems={menuItems} role="worker" />
       <main className="main-content">
 
         <div className="topbar">
           <div>
             <div className="topbar-title">Worker Dashboard</div>
-            <div style={{color:"var(--text2)",fontSize:14,marginTop:4}}>Your safety overview and assignments</div>
+            <div className="dashboard-subtitle">Your safety overview and assigned workplaces</div>
           </div>
-          <span className="topbar-badge">👷 Field Worker</span>
+          <span className="topbar-badge"><Icon name="worker" size={16} /> Field Worker</span>
         </div>
 
-        {loading ? <p className="loading-text">Loading dashboard…</p> : (
+        {loading ? <p className="loading-text">Loading dashboard...</p> : (
           <>
             <div className="stats-grid">
-              {cards.map((c, i) => (
-                <div key={c.label} className="stat-item" style={{animationDelay:`${i*0.08}s`}}>
-                  <div className="stat-item-header">
-                    <div className="stat-icon">{c.icon}</div>
-                    <span className="stat-label">{c.label}</span>
+              {cards.map((c, i) => {
+                return (
+                  <div key={c.label} className="stat-item" style={{animationDelay:`${i*0.08}s`}}>
+                    <div className="stat-item-header">
+                      <div className={`stat-icon tone-${c.tone}`}><Icon name={c.icon} /></div>
+                      <span className="stat-label">{c.label}</span>
+                    </div>
+                    <div className={`stat-value tone-${c.tone}`}>{c.value ?? 0}</div>
                   </div>
-                  <div className="stat-value" style={{
-                    background:`linear-gradient(135deg, ${c.accentColor}, var(--text2))`,
-                    WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text"
-                  }}>{c.value ?? 0}</div>
+                );
+              })}
+            </div>
+
+            <div className="admin-analytics-grid">
+              <section className="content-section analytics-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2 className="section-title">Work Overview</h2>
+                    <p>All worker metrics are calculated from current database records.</p>
+                  </div>
+                  <span className="live-chip">Database backed</span>
                 </div>
-              ))}
+                <div className="donut-wrap">
+                  <div className="donut-chart" style={ringStyle}>
+                    <div>
+                      <strong>{totalRecords}</strong>
+                      <span>Total records</span>
+                    </div>
+                  </div>
+                  <div className="chart-legend">
+                    <div><span className="legend-dot blue" /><span>Assigned locations</span><strong>{stats.assignedLocations ?? 0}</strong></div>
+                    <div><span className="legend-dot amber" /><span>Assigned actions</span><strong>{stats.assignedActions ?? 0}</strong></div>
+                    <div><span className="legend-dot green" /><span>Completed actions</span><strong>{stats.completedActions ?? 0}</strong></div>
+                    <div><span className="legend-dot red" /><span>Open incidents</span><strong>{stats.openIncidents ?? 0}</strong></div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="content-section analytics-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2 className="section-title">Operational Load</h2>
+                    <p>Relative view of locations, corrective actions, and incident load.</p>
+                  </div>
+                </div>
+                <div className="bar-stack">
+                  {cards.map(item => {
+                    const width = Math.max(6, ((Number(item.value) || 0) / maxMetric) * 100);
+                    return (
+                      <div key={item.label} className="bar-row">
+                        <div className="bar-row-label"><span>{item.label}</span><strong>{item.value ?? 0}</strong></div>
+                        <div className="bar-track"><span className={`bar-fill ${item.tone}`} style={{width:`${width}%`}} /></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
 
             <div className="content-section" style={{marginBottom:28}}>
               <h2 className="section-title">Quick Access</h2>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
+              <div className="quick-actions-grid">
                 {menuItems.slice(1).map(item => (
-                  <button key={item.label} className="btn btn-ghost"
-                    style={{padding:"24px", flexDirection:"column", gap:"12px", height:"auto", borderRadius:"12px"}}
-                    onClick={() => navigate(item.path)}>
-                    <span style={{fontSize:"32px"}}>{item.icon}</span>
+                  <button key={item.label} className="btn btn-ghost quick-action-btn" onClick={() => navigate(item.path)}>
+                    <span className="quick-action-icon">{item.icon}</span>
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -94,38 +136,18 @@ export default function WorkerDashboard() {
               <div className="content-section" style={{marginBottom:28}}>
                 <h2 className="section-title">Your Assignments</h2>
                 <table>
-                  <thead><tr><th>Location</th><th>Shift</th><th>Date</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Location</th><th>Assigned Date</th></tr></thead>
                   <tbody>
                     {assignments.slice(0,5).map((a, idx) => (
                       <tr key={idx}>
-                        <td style={{fontWeight:600}}>{a.location || "Location"}</td>
-                        <td style={{color:"var(--text2)"}}>{a.shift || "Full Shift"}</td>
+                        <td style={{fontWeight:600}}><span className="table-icon"><Icon name="location" size={16} /></span>{a.location || "Location"}</td>
                         <td style={{color:"var(--text2)",fontSize:13}}>{new Date(a.date).toLocaleDateString()}</td>
-                        <td><span className={`badge badge-${a.status==="active"?"green":"yellow"}`}>{a.status}</span></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-
-            <div className="content-section">
-              <h2 className="section-title">Daily Safety Tips</h2>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:16}}>
-                {tips.map((tip, i) => (
-                  <div key={i} style={{
-                    padding:"20px", borderRadius:"12px",
-                    background:"rgba(255,255,255,0.03)",
-                    border:"1px solid var(--border)",
-                    display:"flex", alignItems:"flex-start", gap:14,
-                    transition:"all 0.25s ease"
-                  }}>
-                    <span style={{fontSize:28,flexShrink:0}}>{tip.icon}</span>
-                    <p style={{margin:0,fontSize:13,color:"var(--text2)",fontWeight:500,lineHeight:1.5}}>{tip.text}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
           </>
         )}
       </main>

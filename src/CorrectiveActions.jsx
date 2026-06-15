@@ -2,14 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import Sidebar from "./Sidebar";
-
-const menuItems = [
-  { label:"Dashboard",          icon:"🏠", path:"/officer"            },
-  { label:"View Incidents",     icon:"⚠️", path:"/officer/incidents"  },
-  { label:"Corrective Actions", icon:"📋", path:"/officer/actions"    },
-  { label:"Live Video Feed",    icon:"📹", path:"/officer/live"       },
-  { label:"Compliance Records", icon:"📊", path:"/officer/compliance" },
-];
+import { Icon } from "./Icons";
+import { officerMenuItems as menuItems } from "./roleMenuItems";
 
 const priorityClass = (p) => ({ Critical:"red", High:"red", Medium:"yellow", Low:"green" }[p] || "gray");
 const statusClass   = (s) => ({ Resolved:"green", "In Progress":"blue", Pending:"yellow" }[s] || "gray");
@@ -17,7 +11,7 @@ const statusClass   = (s) => ({ Resolved:"green", "In Progress":"blue", Pending:
 export default function CorrectiveActions() {
   const navigate  = useNavigate();
   const routeLoc  = useLocation();
-  const token     = localStorage.getItem("token");
+  const token     = sessionStorage.getItem("token");
   const [actions, setActions]     = useState([]);
   const [users, setUsers]         = useState([]);
   const [incidents, setIncidents] = useState([]);
@@ -28,7 +22,7 @@ export default function CorrectiveActions() {
   const [form, setForm] = useState({ incident_id:routeLoc.state?.incidentId||"", assigned_to:"", description:"", deadline:"", priority:"High" });
 
   useEffect(() => {
-    if (!token) navigate("/");
+    if (!token) navigate("/login");
     fetchData();
     if (routeLoc.state?.incidentId) setShowForm(true);
   }, []);
@@ -36,9 +30,9 @@ export default function CorrectiveActions() {
   const fetchData = async () => {
     try {
       const [actRes, userRes, incRes] = await Promise.all([
-        axios.get("http://localhost:8000/officer/corrective-actions", { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get("http://localhost:8000/admin/users",                { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get("http://localhost:8000/officer/incidents",          { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get("http://127.0.0.1:8001/officer/corrective-actions", { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get("http://127.0.0.1:8001/admin/users",                { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get("http://127.0.0.1:8001/officer/incidents",          { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       setActions(actRes.data);
       setUsers(userRes.data.filter(u => u.status === "active"));
@@ -50,7 +44,7 @@ export default function CorrectiveActions() {
   const handleAssign = async (e) => {
     e.preventDefault(); setError(""); setSuccess("");
     try {
-      await axios.post("http://localhost:8000/officer/corrective-actions", form, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post("http://127.0.0.1:8001/officer/corrective-actions", form, { headers: { Authorization: `Bearer ${token}` } });
       setSuccess("Corrective action assigned!");
       setShowForm(false);
       setForm({ incident_id:"", assigned_to:"", description:"", deadline:"", priority:"High" });
@@ -60,23 +54,26 @@ export default function CorrectiveActions() {
 
   const handleStatusUpdate = async (id, status) => {
     try {
-      await axios.patch(`http://localhost:8000/officer/corrective-actions/${id}`, { status }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.patch(`http://127.0.0.1:8001/officer/corrective-actions/${id}`, { status }, { headers: { Authorization: `Bearer ${token}` } });
       setSuccess("Status updated."); fetchData();
     } catch { setError("Failed to update status."); }
   };
 
-  const getUserName     = (id) => users.find(u => u.id === id)?.name || "—";
+  const getUserName     = (id) => users.find(u => u.id === id)?.name || "Unassigned";
   const getIncidentType = (id) => { const inc = incidents.find(i => i.id === id); return inc ? inc.violation_type : `#${id}`; };
 
   return (
-    <div className="page-layout">
+    <div className="page-layout admin-shell">
       <Sidebar menuItems={menuItems} role="officer" />
       <main className="main-content">
 
         <div className="topbar">
-          <div className="topbar-title">Corrective Actions</div>
+          <div>
+            <div className="topbar-title">Corrective Actions</div>
+            <div className="dashboard-subtitle">Assign, monitor, and close incident response tasks.</div>
+          </div>
           <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setError(""); setSuccess(""); }}>
-            {showForm ? "✕ Cancel" : "+ Assign Action"}
+            {showForm ? <><Icon name="x" size={16} /> Cancel</> : <><Icon name="plus" size={16} /> Assign Action</>}
           </button>
         </div>
 
@@ -91,14 +88,14 @@ export default function CorrectiveActions() {
                 <div className="form-group">
                   <label className="form-label">Incident</label>
                   <select className="form-input" value={form.incident_id} onChange={e => setForm({...form,incident_id:e.target.value})} required>
-                    <option value="">-- Select Incident --</option>
-                    {incidents.map(inc => <option key={inc.id} value={inc.id}>#{inc.id} — {inc.violation_type} ({inc.location})</option>)}
+                    <option value="">Select Incident</option>
+                    {incidents.map(inc => <option key={inc.id} value={inc.id}>#{inc.id} - {inc.violation_type} ({inc.location})</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Assign To</label>
                   <select className="form-input" value={form.assigned_to} onChange={e => setForm({...form,assigned_to:e.target.value})} required>
-                    <option value="">-- Select Personnel --</option>
+                    <option value="">Select Personnel</option>
                     {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
                   </select>
                 </div>
@@ -115,10 +112,10 @@ export default function CorrectiveActions() {
               </div>
               <div className="form-group" style={{marginTop:16}}>
                 <label className="form-label">Description</label>
-                <textarea className="form-input" placeholder="Describe the corrective action required…" value={form.description} onChange={e => setForm({...form,description:e.target.value})} required rows={3} style={{resize:"vertical"}} />
+                <textarea className="form-input" placeholder="Describe the corrective action required..." value={form.description} onChange={e => setForm({...form,description:e.target.value})} required rows={3} style={{resize:"vertical"}} />
               </div>
               <div style={{marginTop:20}}>
-                <button type="submit" className="btn btn-primary">Assign Action</button>
+                <button type="submit" className="btn btn-primary"><Icon name="clipboard" size={16} /> Assign Action</button>
               </div>
             </form>
           </div>
@@ -126,7 +123,7 @@ export default function CorrectiveActions() {
 
         <div className="content-section">
           <h2 className="section-title">All Corrective Actions</h2>
-          {loading ? <p className="loading-text">Loading actions…</p> :
+          {loading ? <p className="loading-text">Loading actions...</p> :
            actions.length === 0 ? <p className="loading-text">No corrective actions found.</p> : (
             <table>
               <thead><tr><th>#</th><th>Incident</th><th>Assigned To</th><th>Priority</th><th>Deadline</th><th>Status</th><th>Update</th></tr></thead>
@@ -134,7 +131,7 @@ export default function CorrectiveActions() {
                 {actions.map((action, idx) => (
                   <tr key={action.id}>
                     <td style={{color:"var(--text3)",fontSize:13}}>{idx+1}</td>
-                    <td style={{fontWeight:600}}>{getIncidentType(action.incident_id)}</td>
+                    <td style={{fontWeight:600}}><span className="table-icon"><Icon name="clipboard" size={16} /></span>{getIncidentType(action.incident_id)}</td>
                     <td style={{color:"var(--text2)"}}>{getUserName(action.assigned_to)}</td>
                     <td><span className={`badge badge-${priorityClass(action.priority)}`}>{action.priority}</span></td>
                     <td style={{color:"var(--text2)",fontSize:13}}>{action.deadline}</td>

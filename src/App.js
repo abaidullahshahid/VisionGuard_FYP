@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import LandingPage          from "./LandingPage";
 import Login                from "./Login";
+import ForgotPassword       from "./ForgotPassword";
 import AdminDashboard       from "./AdminDashboard";
 import ManageUsers          from "./ManageUsers";
 import ManageLocations      from "./ManageLocations";
@@ -19,7 +21,9 @@ function App() {
     <BrowserRouter>
       <Routes>
         {/* Auth */}
-        <Route path="/" element={<Login />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
 
         {/* Admin Routes */}
         <Route path="/admin"           element={<AdminDashboard />} />
