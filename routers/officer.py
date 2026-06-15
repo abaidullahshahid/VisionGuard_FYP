@@ -144,11 +144,18 @@ def list_cameras(db: Session = Depends(get_db), payload=Depends(require_officer)
     return db.query(models.Camera).filter(models.Camera.status == "active").all()
 
 
+# ── Locations ─────────────────────────────────────────────────────
+@router.get("/locations", response_model=List[schemas.LocationOut])
+def list_locations(db: Session = Depends(get_db), payload=Depends(require_officer)):
+    return db.query(models.Location).all()
+
+
 # ── Alerts (recent open incidents as alerts) ──────────────────────
 @router.get("/alerts")
 def list_alerts(db: Session = Depends(get_db), payload=Depends(require_officer)):
     incidents = db.query(models.Incident).filter(
-        models.Incident.status == "open"
+        models.Incident.status == "open",
+        models.Incident.camera_id.isnot(None)
     ).order_by(models.Incident.detected_at.desc()).limit(20).all()
 
     return [

@@ -49,6 +49,7 @@ class User(Base):
     name       = Column(String(150), nullable=False)
     email      = Column(String(255), unique=True, index=True, nullable=False)
     password   = Column(String(255), nullable=False)
+    department = Column(String(100), nullable=True)
     role       = Column(String(50), default="worker", nullable=False)
     status     = Column(String(50), default="active", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -99,7 +100,7 @@ class SafetyRule(Base):
 
     id                 = Column(Integer, primary_key=True, index=True)
     location_id        = Column(Integer, ForeignKey("locations.id"), nullable=False)
-    ppe_type           = Column(String(100), nullable=False)
+    ppe_type           = Column(String(100), nullable=True)
     is_restricted_area = Column(Boolean, default=False)
     severity_level     = Column(String(50), default="High")
     created_at         = Column(DateTime(timezone=True), server_default=func.now())

@@ -13,6 +13,22 @@ class LoginResponse(BaseModel):
     role: str
     name: str
 
+class PasswordResetRequest(BaseModel):
+    email: str
+    new_password: str
+    confirm_password: str
+
+class MessageResponse(BaseModel):
+    message: str
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    department: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+    confirm_password: Optional[str] = None
+
 
 # ── User ──────────────────────────────────────────────────────────
 class UserCreate(BaseModel):
@@ -20,15 +36,18 @@ class UserCreate(BaseModel):
     email: str
     password: str
     role: str = "worker"
+    department: Optional[str] = None
 
 class UserUpdate(BaseModel):
     status: Optional[str] = None
     role: Optional[str] = None
+    department: Optional[str] = None
 
 class UserOut(BaseModel):
     id: int
     name: str
     email: str
+    department: Optional[str] = None
     role: str
     status: str
     created_at: Optional[datetime] = None
@@ -80,14 +99,14 @@ class CameraOut(BaseModel):
 # ── SafetyRule ────────────────────────────────────────────────────
 class SafetyRuleCreate(BaseModel):
     location_id: int
-    ppe_type: str
+    ppe_type: Optional[str] = None
     is_restricted_area: bool = False
     severity_level: str = "High"
 
 class SafetyRuleOut(BaseModel):
     id: int
     location_id: int
-    ppe_type: str
+    ppe_type: Optional[str] = None
     is_restricted_area: bool
     severity_level: str
     created_at: Optional[datetime] = None

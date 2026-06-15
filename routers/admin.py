@@ -44,6 +44,7 @@ def create_user(body: schemas.UserCreate, db: Session = Depends(get_db), payload
         name     = body.name,
         email    = body.email,
         password = hash_password(body.password),
+        department = body.department,
         role     = body.role,
         status   = "active",
     )
@@ -60,6 +61,8 @@ def update_user(user_id: int, body: schemas.UserUpdate, db: Session = Depends(ge
         user.status = body.status
     if body.role is not None:
         user.role = body.role
+    if body.department is not None:
+        user.department = body.department
     db.commit(); db.refresh(user)
     return user
 
@@ -96,6 +99,59 @@ def delete_location(location_id: int, db: Session = Depends(get_db), payload=Dep
 
 
 # ── Cameras ───────────────────────────────────────────────────────
+@router.get("/worker-locations")
+def list_worker_locations(db: Session = Depends(get_db), payload=Depends(require_admin)):
+    assignments = db.query(models.WorkerLocation).order_by(models.WorkerLocation.assigned_at.desc()).all()
+    return [
+        {
+            "id": assignment.id,
+            "worker_id": assignment.worker_id,
+            "worker_name": assignment.worker.name if assignment.worker else "Unassigned",
+            "worker_email": assignment.worker.email if assignment.worker else "",
+            "worker_department": assignment.worker.department if assignment.worker else "",
+            "location_id": assignment.location_id,
+            "location_name": assignment.location.name if assignment.location else "Unknown",
+            "assigned_at": assignment.assigned_at,
+        }
+        for assignment in assignments
+    ]
+
+
+@router.post("/worker-locations", response_model=schemas.WorkerLocationOut, status_code=201)
+def assign_worker_location(body: schemas.WorkerLocationCreate, db: Session = Depends(get_db), payload=Depends(require_admin)):
+    worker = db.query(models.User).filter(models.User.id == body.worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    if worker.role != "worker":
+        raise HTTPException(status_code=400, detail="Selected user is not a worker")
+    if worker.status != "active":
+        raise HTTPException(status_code=400, detail="Worker must be active")
+
+    location = db.query(models.Location).filter(models.Location.id == body.location_id).first()
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    existing = db.query(models.WorkerLocation).filter(
+        models.WorkerLocation.worker_id == body.worker_id,
+        models.WorkerLocation.location_id == body.location_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Worker is already assigned to this location")
+
+    assignment = models.WorkerLocation(worker_id=body.worker_id, location_id=body.location_id)
+    db.add(assignment); db.commit(); db.refresh(assignment)
+    return assignment
+
+
+@router.delete("/worker-locations/{assignment_id}")
+def delete_worker_location(assignment_id: int, db: Session = Depends(get_db), payload=Depends(require_admin)):
+    assignment = db.query(models.WorkerLocation).filter(models.WorkerLocation.id == assignment_id).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    db.delete(assignment); db.commit()
+    return {"detail": "Worker location assignment removed"}
+
+
 @router.get("/cameras", response_model=List[schemas.CameraOut])
 def list_cameras(db: Session = Depends(get_db), payload=Depends(require_admin)):
     return db.query(models.Camera).order_by(models.Camera.created_at.desc()).all()
@@ -131,8 +187,11 @@ def list_rules(db: Session = Depends(get_db), payload=Depends(require_admin)):
 
 @router.post("/safety-rules", response_model=schemas.SafetyRuleOut, status_code=201)
 def create_rule(body: schemas.SafetyRuleCreate, db: Session = Depends(get_db), payload=Depends(require_admin)):
+    if not body.is_restricted_area and not body.ppe_type:
+        raise HTTPException(status_code=400, detail="PPE type is required unless the location is restricted")
     rule = models.SafetyRule(
-        location_id=body.location_id, ppe_type=body.ppe_type,
+        location_id=body.location_id,
+        ppe_type=None if body.is_restricted_area else body.ppe_type,
         is_restricted_area=body.is_restricted_area, severity_level=body.severity_level
     )
     db.add(rule); db.commit(); db.refresh(rule)
