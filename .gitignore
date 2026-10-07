@@ -1,8 +1,21 @@
+.env
+venv/
 __pycache__/
 *.py[cod]
-*$py.class
-.env
-.venv
-env/
-venv/
-*.sqlite3
+.pytest_cache/
+
+# Generated AI artifacts stay local and are not application source.
+ai_module/output/
+ai_module/evidence/
+
+# Legacy scratch image; maintained test media lives under ai_module/Tests/.
+/test.jpg
+
+# Large or machine-specific files kept out of the repository.
+*.zip
+kernel.errors.txt
+ai_module/Tests/videos/
+# Rebuilt by export_openvino.py; the app falls back to the .pt model without it.
+ai_module/models/*_openvino_model/
+# Local maintenance script that resets every user's password.
+reset_password.py

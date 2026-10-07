@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional, List
-from datetime import datetime
+from pydantic import BaseModel, EmailStr, Field
+from typing import Any, Dict, Optional, List
+from datetime import date as Date, datetime
 
 
 # ── Auth ──────────────────────────────────────────────────────────
@@ -13,8 +13,15 @@ class LoginResponse(BaseModel):
     role: str
     name: str
 
-class PasswordResetRequest(BaseModel):
+class ForgotPasswordRequest(BaseModel):
     email: str
+
+class ResetCheckRequest(BaseModel):
+    email: Optional[str] = None
+    code: Optional[str] = None
+    token: Optional[str] = None
+
+class ResetPasswordRequest(ResetCheckRequest):
     new_password: str
     confirm_password: str
 
@@ -42,6 +49,8 @@ class UserUpdate(BaseModel):
     status: Optional[str] = None
     role: Optional[str] = None
     department: Optional[str] = None
+    # Admin-set temporary password (forgot-password flow).
+    password: Optional[str] = None
 
 class UserOut(BaseModel):
     id: int
@@ -81,6 +90,10 @@ class CameraCreate(BaseModel):
     location_id: int
 
 class CameraUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    stream_url: Optional[str] = None
+    location_id: Optional[int] = None
     status: Optional[str] = None
 
 class CameraOut(BaseModel):
@@ -96,11 +109,46 @@ class CameraOut(BaseModel):
         from_attributes = True
 
 
+# ── RestrictedZone ────────────────────────────────────────────────
+# polygon_points is typed loosely on purpose: the zone service validates the
+# exact [[x, y], ...] structure and returns readable 422 messages.
+class RestrictedZoneCreate(BaseModel):
+    name: str
+    polygon_points: Any
+    enabled: bool = True
+
+class RestrictedZoneUpdate(BaseModel):
+    name: Optional[str] = None
+    polygon_points: Optional[Any] = None
+    enabled: Optional[bool] = None
+
+class RestrictedZoneOut(BaseModel):
+    id: int
+    camera_id: int
+    name: str
+    polygon_points: List[List[float]]
+    enabled: bool
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ── SafetyRule ────────────────────────────────────────────────────
 class SafetyRuleCreate(BaseModel):
     location_id: int
     ppe_type: Optional[str] = None
+    # Several items at once, e.g. ["Helmet", "Safety Vest"]; replaces ppe_type.
+    ppe_types: Optional[List[str]] = None
     is_restricted_area: bool = False
+    severity_level: str = "High"
+
+class SafetyRuleBatchCreate(BaseModel):
+    """Several PPE items for one location, e.g. Helmet + Safety Vest."""
+
+    location_id: int
+    ppe_types: List[str]
     severity_level: str = "High"
 
 class SafetyRuleOut(BaseModel):
@@ -117,29 +165,61 @@ class SafetyRuleOut(BaseModel):
 
 # ── Incident ──────────────────────────────────────────────────────
 class IncidentCreate(BaseModel):
+    incident_id: Optional[str] = None
     camera_id: Optional[int] = None
+    camera_identifier: Optional[str] = None
     location_id: Optional[int] = None
     violation_type: str
     severity_level: str = "Medium"
+    track_id: Optional[int] = None
+    stream_time_seconds: Optional[float] = None
+    missing_items: List[str] = Field(default_factory=list)
+    zone_id: Optional[str] = None
+    zone_name: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    officer_notes: Optional[str] = None
     snapshot_url: Optional[str] = None
+
+class IncidentBulkDelete(BaseModel):
+    ids: List[int] = Field(default_factory=list, max_length=10000)
+    all: bool = False
+
 
 class IncidentUpdate(BaseModel):
     status: Optional[str] = None
+    officer_notes: Optional[str] = None
 
-class IncidentOut(BaseModel):
+class IncidentResponse(BaseModel):
     id: int
+    incident_id: Optional[str] = None
+    incident_type: str
     violation_type: str
+    track_id: Optional[int] = None
+    timestamp: Optional[datetime] = None
+    stream_time_seconds: Optional[float] = None
+    severity: str
     severity_level: str
     status: str
     location: Optional[str] = None
     camera_id: Optional[int] = None
+    camera_identifier: Optional[str] = None
     location_id: Optional[int] = None
+    missing_items: List[str] = Field(default_factory=list)
+    zone_id: Optional[str] = None
+    zone_name: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    officer_notes: Optional[str] = None
+    evidence_url: Optional[str] = None
     snapshot_url: Optional[str] = None
     detected_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
+class IncidentOut(IncidentResponse):
+    """Backward-compatible name retained for existing route declarations."""
 
 # ── CorrectiveAction ──────────────────────────────────────────────
 class CorrectiveActionCreate(BaseModel):
@@ -150,12 +230,21 @@ class CorrectiveActionCreate(BaseModel):
     deadline: Optional[str] = None
 
 class CorrectiveActionUpdate(BaseModel):
+    assigned_to: Optional[int] = None
     status: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    deadline: Optional[str] = None
+
+class TaskStatusUpdate(BaseModel):
+    status: str
 
 class CorrectiveActionOut(BaseModel):
     id: int
     incident_id: int
-    assigned_to: int
+    assigned_to: Optional[int] = None
+    assignee_name: Optional[str] = None
+    assignee_role: Optional[str] = None
     description: Optional[str] = None
     priority: str
     deadline: Optional[str] = None
@@ -165,13 +254,16 @@ class CorrectiveActionOut(BaseModel):
     class Config:
         from_attributes = True
 
+class IncidentDetailResponse(IncidentResponse):
+    corrective_actions: List[CorrectiveActionOut] = Field(default_factory=list)
+
 
 # ── SafetyInstruction ─────────────────────────────────────────────
 class SafetyInstructionCreate(BaseModel):
     title: str
     content: str
     category: str = "procedures"
-    location_id: Optional[int] = None
+    location_id: int
 
 class SafetyInstructionOut(BaseModel):
     id: int
@@ -180,6 +272,17 @@ class SafetyInstructionOut(BaseModel):
     category: Optional[str] = None
     location_id: Optional[int] = None
     created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AcknowledgementOut(BaseModel):
+    id: int
+    instruction_id: int
+    acknowledged: bool = True
+    created: bool
+    acknowledged_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -232,3 +335,30 @@ class ComplianceStats(BaseModel):
     nonCompliant: int
     pending: int
     total: int
+    totalViolations: int = 0
+    complianceRate: Optional[float] = None
+
+
+class ComplianceGenerate(BaseModel):
+    date: Optional[Date] = None
+    location_id: Optional[int] = None
+
+
+class ComplianceReview(BaseModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+
+# ── Alert settings ────────────────────────────────────────────────
+class AlertSettingsUpdate(BaseModel):
+    email_enabled: bool
+    min_severity: str
+    email_officers: bool
+    email_admins: bool
+    email_workers: bool
+    extra_recipients: Optional[str] = ""
+    cooldown_minutes: int
+    attach_snapshot: bool
+    camera_alerts: bool
+    daily_summary: bool
+    daily_summary_hour: int

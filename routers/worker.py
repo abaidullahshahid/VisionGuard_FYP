@@ -1,16 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from database import get_db
 import models, schemas
 from routers.auth import decode_token
+from services.action_service import TASK_STATUSES, sync_incident_status
+from services import compliance_service
+from services.instruction_service import ensure_rule_instructions, instruction_view
+from services.notification_service import notify_action_updated
 from typing import List
 
 router = APIRouter(prefix="/worker", tags=["worker"])
 
 
 def require_worker(authorization: str = Header(...)):
-    if authorization == "Bearer demo":
-        return {"sub": "3", "role": "worker", "name": "Demo Worker"}
     token = authorization.replace("Bearer ", "")
     payload = decode_token(token)
     if payload.get("role") not in ("worker", "officer", "admin"):
@@ -106,76 +109,172 @@ def get_locations(db: Session = Depends(get_db), payload=Depends(require_worker)
 # ── Safety Instructions ───────────────────────────────────────────
 @router.get("/safety-instructions")
 def get_instructions(db: Session = Depends(get_db), payload=Depends(require_worker)):
+    """Rule-published and officer-written instructions for my locations."""
     worker_id = int(payload.get("sub", 0))
     assignments = db.query(models.WorkerLocation).filter(
         models.WorkerLocation.worker_id == worker_id
     ).all()
     assigned_location_ids = [assignment.location_id for assignment in assignments]
+    if not assigned_location_ids:
+        return []
 
-    instructions = []
-    if assigned_location_ids:
-        instructions = db.query(models.SafetyInstruction).filter(
-            models.SafetyInstruction.location_id.in_(assigned_location_ids)
-        ).order_by(models.SafetyInstruction.created_at.desc()).all()
+    ensure_rule_instructions(db, assigned_location_ids)
+    instructions = db.query(models.SafetyInstruction).filter(
+        models.SafetyInstruction.location_id.in_(assigned_location_ids)
+    ).order_by(
+        models.SafetyInstruction.safety_rule_id.is_(None),
+        models.SafetyInstruction.created_at.desc(),
+    ).all()
+
+    acknowledgements = {
+        acknowledgement.instruction_id: acknowledgement
+        for acknowledgement in db.query(models.Acknowledgement).filter(
+            models.Acknowledgement.worker_id == worker_id
+        ).all()
+    }
 
     result = []
     for inst in instructions:
-        loc_name = inst.location.name if inst.location else "Assigned Location"
+        acknowledgement = acknowledgements.get(inst.id)
         result.append({
             "id":          f"inst_{inst.id}",
+            "instruction_id": inst.id,
             "title":       inst.title,
             "description": inst.content,
             "category":    inst.category or "procedures",
             "location_id":  inst.location_id,
-            "location":     loc_name,
+            "location":     inst.location.name if inst.location else "Assigned Location",
+            "source":      "safety_rule" if inst.safety_rule_id else "officer",
             "steps":       [],
-            "warnings":    [],
-            "dos":         [],
-            "donts":       [],
-            "equipment":   [],
+            **instruction_view(inst),
+            "acknowledgeable": payload.get("role") == "worker",
+            "acknowledged": acknowledgement is not None,
+            "acknowledged_at": acknowledgement.acknowledged_at if acknowledgement else None,
+            "created_at":  inst.created_at,
         })
-
-    restricted_rules = db.query(models.SafetyRule).filter(
-        models.SafetyRule.is_restricted_area == True
-    ).all()
-    ppe_rules = []
-    if assigned_location_ids:
-        ppe_rules = db.query(models.SafetyRule).filter(
-            models.SafetyRule.location_id.in_(assigned_location_ids),
-            models.SafetyRule.is_restricted_area == False
-        ).all()
-
-    rules = restricted_rules + ppe_rules
-    for rule in rules:
-        loc_name = rule.location.name if rule.location else "Assigned Location"
-
-        if rule.is_restricted_area:
-            title = f"Restricted Area: Do Not Enter {loc_name}"
-            description = f"{loc_name} is a restricted area. Workers must not enter this location."
-            dos = ["Stay out of this restricted area", "Report attempted entry to a safety officer"]
-            warnings = ["No worker is authorized to enter this location."]
-            donts = ["Do not enter this area", "Do not attempt work inside this zone"]
-            equipment = []
-        else:
-            title = f"Safety Rule: {rule.ppe_type} Required"
-            description = f"Mandatory safety rule for {loc_name}."
-            dos = [f"Must wear {rule.ppe_type}"]
-            warnings = []
-            donts = []
-            equipment = [rule.ppe_type]
-
-        result.append({
-            "id":          f"rule_{rule.id}",
-            "title":       title,
-            "description": description,
-            "category":    "ppe",
-            "location_id":  rule.location_id,
-            "location":     loc_name,
-            "steps":       [],
-            "warnings":    warnings,
-            "dos":         dos,
-            "donts":       donts,
-            "equipment":   equipment,
-        })
-
     return result
+
+
+# ── My corrective actions (UC-13) ─────────────────────────────────
+def _task_payload(action: models.CorrectiveAction) -> dict:
+    incident = action.incident
+    return {
+        "id": action.id,
+        "description": action.description,
+        "priority": action.priority,
+        "deadline": action.deadline,
+        "status": action.status,
+        "created_at": action.created_at,
+        "incident": {
+            "id": incident.id,
+            "type": incident.violation_type,
+            "severity": incident.severity_level,
+            "location": incident.location_rel.name if incident.location_rel else "Unknown",
+            "detected_at": incident.detected_at,
+            "missing_items": incident.missing_items or [],
+            "zone_name": incident.zone_name,
+        } if incident else None,
+    }
+
+
+@router.get("/corrective-actions")
+def my_corrective_actions(db: Session = Depends(get_db), payload=Depends(require_worker)):
+    actions = db.query(models.CorrectiveAction).filter(
+        models.CorrectiveAction.assigned_to == int(payload.get("sub", 0))
+    ).order_by(models.CorrectiveAction.created_at.desc()).all()
+    return [_task_payload(action) for action in actions]
+
+
+@router.patch("/corrective-actions/{action_id}")
+def update_my_corrective_action(
+    action_id: int,
+    body: schemas.TaskStatusUpdate,
+    db: Session = Depends(get_db),
+    payload=Depends(require_worker),
+):
+    user_id = int(payload.get("sub", 0))
+    action = db.get(models.CorrectiveAction, action_id)
+    if action is None or action.assigned_to != user_id:
+        raise HTTPException(status_code=404, detail="Corrective action not found")
+    if body.status not in TASK_STATUSES:
+        raise HTTPException(status_code=422, detail="Status must be Pending, In Progress, or Resolved")
+    if action.status != body.status:
+        action.status = body.status
+        sync_incident_status(db, action.incident)
+        notify_action_updated(db, action, user_id, payload.get("role", "worker"))
+        db.commit()
+        compliance_service.refresh_for_incidents(db, [action.incident])
+        db.refresh(action)
+    return _task_payload(action)
+
+
+@router.post(
+    "/safety-instructions/{instruction_id}/acknowledge",
+    response_model=schemas.AcknowledgementOut,
+)
+def acknowledge_instruction(
+    instruction_id: int,
+    db: Session = Depends(get_db),
+    payload=Depends(require_worker),
+):
+    if payload.get("role") != "worker":
+        raise HTTPException(status_code=403, detail="Only workers can acknowledge instructions")
+    worker_id = int(payload.get("sub", 0))
+    instruction = db.get(models.SafetyInstruction, instruction_id)
+    if instruction is None:
+        raise HTTPException(status_code=404, detail="Safety instruction not found")
+
+    allowed = db.query(models.WorkerLocation).filter(
+        models.WorkerLocation.worker_id == worker_id,
+        models.WorkerLocation.location_id == instruction.location_id,
+    ).first()
+    if allowed is None:
+        raise HTTPException(
+            status_code=403,
+            detail="This safety instruction is not assigned to your locations",
+        )
+
+    existing = db.query(models.Acknowledgement).filter(
+        models.Acknowledgement.worker_id == worker_id,
+        models.Acknowledgement.instruction_id == instruction.id,
+    ).first()
+    if existing is not None:
+        return {
+            "id": existing.id,
+            "instruction_id": existing.instruction_id,
+            "acknowledged": True,
+            "created": False,
+            "acknowledged_at": existing.acknowledged_at,
+        }
+
+    acknowledgement = models.Acknowledgement(
+        instruction_id=instruction.id,
+        worker_id=worker_id,
+    )
+    try:
+        db.add(acknowledgement)
+        db.commit()
+        db.refresh(acknowledgement)
+    except IntegrityError:
+        db.rollback()
+        acknowledgement = db.query(models.Acknowledgement).filter(
+            models.Acknowledgement.worker_id == worker_id,
+            models.Acknowledgement.instruction_id == instruction.id,
+        ).first()
+        if acknowledgement is None:
+            raise
+        return {
+            "id": acknowledgement.id,
+            "instruction_id": acknowledgement.instruction_id,
+            "acknowledged": True,
+            "created": False,
+            "acknowledged_at": acknowledgement.acknowledged_at,
+        }
+
+    return {
+        "id": acknowledgement.id,
+        "instruction_id": acknowledgement.instruction_id,
+        "acknowledged": True,
+        "created": True,
+        "acknowledged_at": acknowledgement.acknowledged_at,
+    }

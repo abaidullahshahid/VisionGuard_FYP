@@ -8,41 +8,46 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from database import SessionLocal, engine
 from models import Base, User
-import hashlib
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Create all tables first
 Base.metadata.create_all(bind=engine)
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    return pwd_context.hash(password)
 
 db = SessionLocal()
 
-# Check if admin already exists
-existing = db.query(User).filter(User.email == "admin@visionguard.com").first()
-if existing:
-    print("[OK] Admin user already exists!")
-    print("   Email:    admin@visionguard.com")
-    print("   Password: admin123")
-else:
-    users_to_create = [
-        User(name="Admin User",    email="admin@visionguard.com",   password=hash_password("admin123"),   role="admin",   status="active"),
-        User(name="Safety Officer",email="officer@visionguard.com", password=hash_password("officer123"), role="officer", status="active"),
-        User(name="Field Worker",  email="worker@visionguard.com",  password=hash_password("worker123"),  role="worker",  status="active"),
-    ]
-    for u in users_to_create:
-        db.add(u)
+demo_users = [
+    ("Admin User", "admin@visionguard.com", "admin123", "admin"),
+    ("Safety Officer", "officer@visionguard.com", "officer123", "officer"),
+    ("Field Worker", "worker@visionguard.com", "worker123", "worker"),
+]
+created = []
+try:
+    for name, email, password, role in demo_users:
+        existing = db.query(User).filter(User.email == email).first()
+        if existing is not None:
+            print(f"[OK] {email} already exists; its password was not changed.")
+            continue
+        db.add(User(
+            name=name,
+            email=email,
+            password=hash_password(password),
+            role=role,
+            status="active",
+        ))
+        created.append((role.title(), email, password))
     db.commit()
-    print("[OK] Demo users created successfully!")
-    print("")
-    print("--------------------------------------------------")
-    print("         VisionGuard Login Credentials")
-    print("--------------------------------------------------")
-    print(" Role     | Email                   | Password   ")
-    print("----------|-------------------------|------------")
-    print(" Admin    | admin@visionguard.com   | admin123   ")
-    print(" Officer  | officer@visionguard.com | officer123 ")
-    print(" Worker   | worker@visionguard.com  | worker123  ")
-    print("--------------------------------------------------")
 
-db.close()
+    if created:
+        print("[OK] Missing demo users created successfully!")
+        print("Credentials for newly created accounts only:")
+        for role, email, password in created:
+            print(f"  {role}: {email} / {password}")
+    else:
+        print("[OK] All demo users already exist; no database changes were made.")
+finally:
+    db.close()

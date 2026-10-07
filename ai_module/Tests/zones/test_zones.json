@@ -1,0 +1,16 @@
+{
+  "zones": [
+    {
+      "zone_id": "zone_1",
+      "name": "Interior Floor Test Area",
+      "enabled": true,
+      "normalized": true,
+      "polygon": [
+        [0.56, 0.80],
+        [0.90, 0.80],
+        [0.90, 1.00],
+        [0.56, 1.00]
+      ]
+    }
+  ]
+}

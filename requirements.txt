@@ -5,3 +5,11 @@ psycopg2-binary
 pyjwt
 python-multipart
 pydantic[email]
+passlib==1.7.4
+bcrypt==4.0.1
+ultralytics
+opencv-python
+numpy
+lap>=0.5.12
+python-dotenv
+openvino>=2026.0  # faster AI on Intel CPUs (export_openvino.py)
