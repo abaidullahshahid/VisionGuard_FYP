@@ -6,6 +6,7 @@ const adminMenuItems = [
   { label: "Locations",    icon: <Icon name="location" />,  path: "/admin/locations" },
   { label: "Cameras",      icon: <Icon name="camera" />,    path: "/admin/cameras" },
   { label: "Safety Rules", icon: <Icon name="rules" />,     path: "/admin/rules" },
+  { label: "Alerts",       icon: <Icon name="bell" />,      path: "/admin/alerts" },
 ];
 
 export default adminMenuItems;

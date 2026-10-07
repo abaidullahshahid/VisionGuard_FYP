@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "./api";
 import Sidebar from "./Sidebar";
 import { Icon } from "./Icons";
 import menuItems from "./adminMenuItems";
+import SelectMenu from "./SelectMenu";
 
 export default function ManageLocations() {
   const navigate = useNavigate();
@@ -30,9 +32,9 @@ export default function ManageLocations() {
   const fetchData = async () => {
     try {
       const [locRes, userRes, assignmentRes] = await Promise.all([
-        axios.get("http://127.0.0.1:8001/admin/locations", authHeaders),
-        axios.get("http://127.0.0.1:8001/admin/users", authHeaders),
-        axios.get("http://127.0.0.1:8001/admin/worker-locations", authHeaders),
+        axios.get(`${API_BASE}/admin/locations`, authHeaders),
+        axios.get(`${API_BASE}/admin/users`, authHeaders),
+        axios.get(`${API_BASE}/admin/worker-locations`, authHeaders),
       ]);
       const activeWorkers = (userRes.data || []).filter(u => u.role === "worker" && u.status === "active");
       setLocations(locRes.data || []);
@@ -45,7 +47,7 @@ export default function ManageLocations() {
   const handleAdd = async (e) => {
     e.preventDefault(); setError(""); setSuccess("");
     try {
-      await axios.post("http://127.0.0.1:8001/admin/locations", {
+      await axios.post(`${API_BASE}/admin/locations`, {
         name: form.name.trim(),
         zone: form.zone.trim(),
         department: form.department.trim(),
@@ -64,7 +66,7 @@ export default function ManageLocations() {
       return;
     }
     try {
-      await axios.post("http://127.0.0.1:8001/admin/worker-locations", {
+      await axios.post(`${API_BASE}/admin/worker-locations`, {
         worker_id: Number(assignForm.worker_id),
         location_id: Number(assignForm.location_id),
       }, authHeaders);
@@ -80,7 +82,7 @@ export default function ManageLocations() {
   const handleAddWorker = async (e) => {
     e.preventDefault(); setError(""); setSuccess("");
     try {
-      const res = await axios.post("http://127.0.0.1:8001/admin/users", {
+      const res = await axios.post(`${API_BASE}/admin/users`, {
         name: workerForm.name.trim(),
         email: workerForm.email.trim().toLowerCase(),
         password: workerForm.password,
@@ -101,7 +103,7 @@ export default function ManageLocations() {
   const handleRemoveAssignment = async (id) => {
     if (!window.confirm("Remove this worker from the location?")) return;
     try {
-      await axios.delete(`http://127.0.0.1:8001/admin/worker-locations/${id}`, authHeaders);
+      await axios.delete(`${API_BASE}/admin/worker-locations/${id}`, authHeaders);
       setSuccess("Worker assignment removed.");
       fetchData();
     } catch { setError("Failed to remove assignment."); }
@@ -110,9 +112,9 @@ export default function ManageLocations() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this location?")) return;
     try {
-      await axios.delete(`http://127.0.0.1:8001/admin/locations/${id}`, authHeaders);
+      await axios.delete(`${API_BASE}/admin/locations/${id}`, authHeaders);
       setSuccess("Location deleted."); fetchData();
-    } catch { setError("Cannot delete location. It may have active cameras, incidents, or worker assignments."); }
+    } catch (err) { setError(err.response?.data?.detail || "Cannot delete this location."); }
   };
 
   const filteredWorkers = workers.filter(worker =>
@@ -243,11 +245,14 @@ export default function ManageLocations() {
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">Workplace Location</label>
-                <select className="form-input" value={assignForm.location_id} onChange={e => setAssignForm({...assignForm, location_id:e.target.value})} required>
-                  <option value="" disabled>Select location</option>
-                  {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name} - {loc.zone}</option>)}
-                </select>
+                <label className="form-label" htmlFor="assign-location">Workplace Location</label>
+                <SelectMenu
+                  id="assign-location"
+                  value={assignForm.location_id}
+                  placeholder="Select location"
+                  options={locations.map(loc => ({ value: String(loc.id), label: `${loc.name} - ${loc.zone}` }))}
+                  onChange={location_id => setAssignForm({...assignForm, location_id})}
+                />
               </div>
               <div className="form-group" style={{justifyContent:"flex-end"}}>
                 <button type="submit" className="btn btn-primary" style={{marginTop:"auto"}}>

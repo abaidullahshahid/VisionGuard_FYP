@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "./api";
 import { Icon } from "./Icons";
 import ThemeToggle from "./ThemeToggle";
+import NotificationBell from "./NotificationBell";
 
 const logo = `${process.env.PUBLIC_URL}/images/burger.png?v=transparent-20260615`;
-const API_BASE = "http://127.0.0.1:8001";
-
 const emptyProfile = {
   name: "",
   email: "",
@@ -26,6 +26,20 @@ export default function Sidebar({ menuItems, role }) {
   const [profileForm, setProfileForm] = useState(emptyProfile);
   const [profileError, setProfileError] = useState("");
   const [profileSuccess, setProfileSuccess] = useState("");
+  const navRef = useRef(null);
+
+  // The navbar sticks to the top and wraps onto more rows on narrow screens;
+  // publish its height so sticky page parts and scrolling stop below it.
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return undefined;
+    const publish = () => document.documentElement.style.setProperty("--app-nav-height", `${nav.offsetHeight}px`);
+    publish();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(publish);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, []);
 
   const handleLogout = () => {
     sessionStorage.clear();
@@ -122,7 +136,7 @@ export default function Sidebar({ menuItems, role }) {
   };
 
   return (
-    <header className="sidebar app-navbar">
+    <header className="sidebar app-navbar" ref={navRef}>
       <div className="sidebar-logo">
         <span className="sidebar-logo-icon">
           <img src={logo} alt="VisionGuard" />
@@ -149,6 +163,7 @@ export default function Sidebar({ menuItems, role }) {
       </nav>
 
       <div className="navbar-actions">
+        <NotificationBell />
         <ThemeToggle />
         <button
           className="profile-trigger"
@@ -203,15 +218,17 @@ export default function Sidebar({ menuItems, role }) {
                     required
                   />
                 </label>
-                <label>
-                  <span>Department</span>
-                  <input
-                    className="form-input"
-                    value={profileForm.department}
-                    onChange={(e) => handleProfileChange("department", e.target.value)}
-                    placeholder="Not assigned"
-                  />
-                </label>
+                {role !== "admin" && (
+                  <label>
+                    <span>Department</span>
+                    <input
+                      className="form-input"
+                      value={profileForm.department}
+                      onChange={(e) => handleProfileChange("department", e.target.value)}
+                      placeholder="Not assigned"
+                    />
+                  </label>
+                )}
               </div>
 
               <div className="profile-password-panel">

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "./api";
 import Sidebar from "./Sidebar";
 import { Icon } from "./Icons";
 import menuItems from "./adminMenuItems";
@@ -13,7 +14,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const token = sessionStorage.getItem("token");
     if (!token) { navigate("/login"); return; }
-    axios.get("http://127.0.0.1:8001/admin/stats", { headers: { Authorization: `Bearer ${token}` } })
+    axios.get(`${API_BASE}/admin/stats`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setStats(r.data))
       .catch(err => console.error(err))
       .finally(() => setLoading(false));

@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "./api";
 import Sidebar from "./Sidebar";
 import { Icon } from "./Icons";
 import menuItems from "./adminMenuItems";
+import SelectMenu from "./SelectMenu";
 
 const roleClass = (r) => ({ admin:"red", officer:"blue", worker:"green" }[r] || "gray");
+const ROLE_OPTIONS = [
+  { value:"admin",   label:"Admin",          description:"Manages the whole system (no department)" },
+  { value:"officer", label:"Safety Officer", description:"Reviews incidents and corrective actions" },
+  { value:"worker",  label:"Worker",         description:"Works at assigned locations" },
+];
 
 export default function ManageUsers() {
   const navigate = useNavigate();
@@ -16,12 +23,14 @@ export default function ManageUsers() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [form, setForm] = useState({ name:"", email:"", password:"", role:"worker", department:"" });
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
 
   useEffect(() => { if (!token) navigate("/login"); fetchUsers(); }, []);
 
   const fetchUsers = async () => {
     try {
-      const res = await axios.get("http://127.0.0.1:8001/admin/users", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API_BASE}/admin/users`, { headers: { Authorization: `Bearer ${token}` } });
       setUsers(res.data);
     } catch { setError("Failed to fetch users."); }
     finally { setLoading(false); }
@@ -30,7 +39,9 @@ export default function ManageUsers() {
   const handleAddUser = async (e) => {
     e.preventDefault(); setError(""); setSuccess("");
     try {
-      await axios.post("http://127.0.0.1:8001/admin/users", form, { headers: { Authorization: `Bearer ${token}` } });
+      // Admins oversee every department, so none is stored for them.
+      const body = { ...form, department: form.role === "admin" ? null : form.department.trim() || null };
+      await axios.post(`${API_BASE}/admin/users`, body, { headers: { Authorization: `Bearer ${token}` } });
       setSuccess("User added successfully!");
       setShowForm(false);
       setForm({ name:"", email:"", password:"", role:"worker", department:"" });
@@ -46,18 +57,44 @@ export default function ManageUsers() {
 
   const handleStatusUpdate = async (id, status) => {
     try {
-      await axios.patch(`http://127.0.0.1:8001/admin/users/${id}`, { status }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.patch(`${API_BASE}/admin/users/${id}`, { status }, { headers: { Authorization: `Bearer ${token}` } });
       setSuccess("User status updated."); fetchUsers();
     } catch { setError("Failed to update status."); }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this user?")) return;
+  const handleResetPassword = async (user) => {
+    const password = window.prompt(`Temporary password for ${user.name} (at least 6 characters). Give it to them and ask them to change it in their profile.`);
+    if (password === null) return;
+    setError(""); setSuccess("");
     try {
-      await axios.delete(`http://127.0.0.1:8001/admin/users/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setSuccess("User deleted."); fetchUsers();
-    } catch { setError("Failed to delete user."); }
+      await axios.patch(`${API_BASE}/admin/users/${user.id}`, { password }, { headers: { Authorization: `Bearer ${token}` } });
+      setSuccess(`Temporary password set for ${user.name}.`);
+    } catch (err) { setError(err.response?.data?.detail || "Failed to reset password."); }
   };
+
+  const handleDelete = async (user) => {
+    const message = `Delete ${user.name} (${user.email})?\n\n`
+      + "Their past corrective actions stay in the history. Any unfinished tasks become unassigned so an officer can reassign them.\n\n"
+      + "To only block their login, use Deactivate instead.";
+    if (!window.confirm(message)) return;
+    setError(""); setSuccess("");
+    try {
+      const res = await axios.delete(`${API_BASE}/admin/users/${user.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      setSuccess(res.data?.detail || "User deleted."); fetchUsers();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to delete user. Check that the backend is running.");
+    }
+  };
+
+  const roleName = { admin:"Admin", officer:"Safety Officer", worker:"Worker" };
+  const query = search.trim().toLowerCase();
+  const shownUsers = users.filter((u) => {
+    if (roleFilter && u.role !== roleFilter) return false;
+    if (!query) return true;
+    const department = u.role === "admin" ? "All departments" : (u.department || "");
+    return [u.name, u.email, department, u.role, roleName[u.role], u.status]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
 
   return (
     <div className="page-layout admin-shell">
@@ -95,17 +132,24 @@ export default function ManageUsers() {
                   <input type="password" className="form-input" placeholder="Enter password" value={form.password} onChange={e => setForm({...form,password:e.target.value})} required />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Role</label>
-                  <select className="form-input" value={form.role} onChange={e => setForm({...form,role:e.target.value})}>
-                    <option value="admin">Admin</option>
-                    <option value="officer">Safety Officer</option>
-                    <option value="worker">Worker</option>
-                  </select>
+                  <label className="form-label" htmlFor="user-role">Role</label>
+                  <SelectMenu id="user-role" value={form.role} options={ROLE_OPTIONS} onChange={role => setForm({...form,role})} />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Department</label>
-                  <input className="form-input" placeholder="e.g. Manufacturing" value={form.department} onChange={e => setForm({...form,department:e.target.value})} />
-                </div>
+                {form.role !== "admin" && (
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="user-department">
+                      Department{form.role === "officer" ? " (optional)" : ""}
+                    </label>
+                    <input
+                      id="user-department"
+                      className="form-input"
+                      placeholder="e.g. Manufacturing"
+                      value={form.department}
+                      onChange={e => setForm({...form,department:e.target.value})}
+                      required={form.role === "worker"}
+                    />
+                  </div>
+                )}
               </div>
               <div style={{marginTop:20}}>
                 <button type="submit" className="btn btn-primary"><Icon name="plus" size={16} /> Add User</button>
@@ -116,17 +160,39 @@ export default function ManageUsers() {
 
         <div className="content-section">
           <h2 className="section-title">All Users</h2>
+          <div className="user-search-row">
+            <div className="search-panel">
+              <span className="search-panel-icon"><Icon name="search" size={18} /></span>
+              <input
+                className="form-input"
+                aria-label="Search users"
+                placeholder="Search by name, email, department, role or status"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <SelectMenu
+              ariaLabel="Filter by role"
+              value={roleFilter}
+              options={[{ value:"", label:"All roles" }, ...ROLE_OPTIONS.map(({ value, label }) => ({ value, label }))]}
+              onChange={setRoleFilter}
+            />
+          </div>
+          {!loading && users.length > 0 && (search || roleFilter) && (
+            <p className="table-secondary" style={{margin:"0 0 12px"}}>{shownUsers.length} of {users.length} users match</p>
+          )}
           {loading ? <p className="loading-text">Loading users...</p> :
-           users.length === 0 ? <p className="loading-text">No users found.</p> : (
+           users.length === 0 ? <p className="loading-text">No users found.</p> :
+           shownUsers.length === 0 ? <p className="loading-text">No users match your search.</p> : (
             <table>
               <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
-                {users.map((u, i) => (
+                {shownUsers.map((u, i) => (
                   <tr key={u.id}>
                     <td style={{color:"var(--text3)",fontSize:13}}>{i+1}</td>
                     <td style={{fontWeight:600}}>{u.name}</td>
                     <td style={{color:"var(--text2)"}}>{u.email}</td>
-                    <td style={{color:"var(--text2)"}}>{u.department || "Unassigned"}</td>
+                    <td style={{color:"var(--text2)"}}>{u.role === "admin" ? "All departments" : (u.department || "Unassigned")}</td>
                     <td><span className={`badge badge-${roleClass(u.role)}`}>{u.role}</span></td>
                     <td><span className={`badge badge-${u.status==="active"?"green":"gray"}`}>
                       <span className={`status-dot ${u.status==="active" ? "" : "muted"}`} /> {u.status==="active"?"Active":"Inactive"}
@@ -136,7 +202,8 @@ export default function ManageUsers() {
                         {u.status==="active"
                           ? <button className="btn btn-ghost btn-sm" onClick={() => handleStatusUpdate(u.id,"inactive")}>Deactivate</button>
                           : <button className="btn btn-ghost btn-sm" onClick={() => handleStatusUpdate(u.id,"active")}>Activate</button>}
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(u.id)}><Icon name="trash" size={14} /> Delete</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => handleResetPassword(u)}>Reset Password</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(u)}><Icon name="trash" size={14} /> Delete</button>
                       </div>
                     </td>
                   </tr>

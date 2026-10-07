@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { api, apiErrorMessage } from "./api";
 import Sidebar from "./Sidebar";
 import { Icon } from "./Icons";
 import { workerMenuItems as menuItems } from "./roleMenuItems";
+import { useNotificationRefresh } from "./NotificationBell";
 
 const categories = ["all","ppe","procedures","emergency","hazards"];
 const categoryMeta = {
@@ -21,19 +22,50 @@ export default function SafetyInstructions() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [expandedIndex, setExpandedIndex] = useState(null);
-  const [acknowledged, setAcknowledged] = useState([]);
+  const [acknowledgingId, setAcknowledgingId] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const handleAcknowledge = (id) => {
-    if (!acknowledged.includes(id)) setAcknowledged([...acknowledged, id]);
-  };
+  const fetchInstructions = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.get("/worker/safety-instructions");
+      setInstructions(response.data || []);
+    } catch (requestError) {
+      setError(apiErrorMessage(requestError, "Failed to load safety instructions.", navigate));
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
 
   useEffect(() => {
-    if (!token) navigate("/login");
-    axios.get("http://127.0.0.1:8001/worker/safety-instructions", { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setInstructions(r.data || []))
-      .catch(err => console.error(err))
-      .finally(() => setLoading(false));
-  }, [navigate]);
+    if (!token) {
+      navigate("/login", { replace: true });
+      return;
+    }
+    fetchInstructions();
+  }, [fetchInstructions, navigate, token]);
+
+  useNotificationRefresh(["instruction"], fetchInstructions);
+
+  const handleAcknowledge = async (instruction) => {
+    if (!instruction.acknowledgeable || instruction.acknowledged) return;
+    setAcknowledgingId(instruction.id);
+    setError("");
+    setSuccess("");
+    try {
+      await api.post(`/worker/safety-instructions/${instruction.instruction_id}/acknowledge`);
+      setInstructions((current) => current.map((item) => (
+        item.id === instruction.id ? { ...item, acknowledged: true } : item
+      )));
+      setSuccess(`Acknowledged: ${instruction.title}`);
+    } catch (requestError) {
+      setError(apiErrorMessage(requestError, "Failed to acknowledge this instruction.", navigate));
+    } finally {
+      setAcknowledgingId(null);
+    }
+  };
 
   const filtered = selectedCategory === "all" ? instructions : instructions.filter(i => i.category === selectedCategory);
   const references = [
@@ -55,6 +87,9 @@ export default function SafetyInstructions() {
           <span className="topbar-badge"><Icon name="book" size={16} /> Learn and stay safe</span>
         </div>
 
+        {error && <div className="alert alert-error" role="alert">{error}</div>}
+        {success && <div className="alert alert-success" role="status">{success}</div>}
+
         <div className="segmented-toolbar">
           {categories.map(cat => (
             <button key={cat} onClick={() => setSelectedCategory(cat)}
@@ -71,7 +106,7 @@ export default function SafetyInstructions() {
 
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               {filtered.map((instruction, idx) => {
-                const isAck = acknowledged.includes(instruction.id);
+                const isAck = Boolean(instruction.acknowledged);
                 const iconName = categoryMeta[instruction.category]?.icon || "book";
                 return (
                 <div key={idx} className="content-section" style={{padding:0,overflow:"hidden"}}>
@@ -89,6 +124,7 @@ export default function SafetyInstructions() {
                         <p style={{margin:"4px 0 0",fontSize:12,color:"var(--text3)"}}>
                           {categoryMeta[instruction.category]?.name}
                           {instruction.location ? ` | ${instruction.location}` : ""}
+                          {` | ${instruction.source === "safety_rule" ? "Safety rule" : "From safety officer"}`}
                         </p>
                       </div>
                     </div>
@@ -131,11 +167,17 @@ export default function SafetyInstructions() {
                       )}
 
                       <div style={{marginTop:20,textAlign:"right"}}>
-                        <button className={`btn ${isAck ? "btn-ghost" : "btn-primary"}`}
-                          onClick={(e) => { e.stopPropagation(); handleAcknowledge(instruction.id); }}
-                          disabled={isAck}>
-                          {isAck ? <><Icon name="check" size={16} /> Acknowledged</> : "Acknowledge"}
-                        </button>
+                        {instruction.acknowledgeable ? (
+                          <button className={`btn ${isAck ? "btn-ghost" : "btn-primary"}`}
+                            onClick={(e) => { e.stopPropagation(); handleAcknowledge(instruction); }}
+                            disabled={isAck || acknowledgingId === instruction.id}>
+                            {isAck
+                              ? <><Icon name="check" size={16} /> Acknowledged</>
+                              : acknowledgingId === instruction.id ? "Saving..." : "Acknowledge"}
+                          </button>
+                        ) : (
+                          <span className="badge badge-blue">Workers acknowledge this instruction</span>
+                        )}
                       </div>
                     </div>
                   )}

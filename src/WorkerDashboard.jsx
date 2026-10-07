@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "./api";
 import Sidebar from "./Sidebar";
 import { Icon } from "./Icons";
 import { workerMenuItems as menuItems } from "./roleMenuItems";
@@ -17,8 +18,8 @@ export default function WorkerDashboard() {
     const fetchData = async () => {
       try {
         const [statsRes, assignmentsRes] = await Promise.all([
-          axios.get("http://127.0.0.1:8001/worker/stats",       { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get("http://127.0.0.1:8001/worker/assignments", { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get(`${API_BASE}/worker/stats`,       { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get(`${API_BASE}/worker/assignments`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
         setStats(statsRes.data || {});
         setAssignments(assignmentsRes.data || []);

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "./api";
 import Sidebar from "./Sidebar";
 import { Icon } from "./Icons";
 import { workerMenuItems as menuItems } from "./roleMenuItems";
@@ -18,7 +19,7 @@ export default function WorkerLocations() {
 
   useEffect(() => {
     if (!token) navigate("/login");
-    axios.get("http://127.0.0.1:8001/worker/locations", { headers: { Authorization: `Bearer ${token}` } })
+    axios.get(`${API_BASE}/worker/locations`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setLocations(r.data || []))
       .catch(err => console.error(err))
       .finally(() => setLoading(false));
